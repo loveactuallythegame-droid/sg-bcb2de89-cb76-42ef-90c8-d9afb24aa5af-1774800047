@@ -181,6 +181,92 @@ export class FontFormats {
     return kerningPairs;
   }
   
+  static exportToOTF(font: Font): Blob {
+    const notdefGlyph = new opentype.Glyph({
+      name: ".notdef",
+      unicode: undefined,
+      advanceWidth: 600,
+      path: new opentype.Path()
+    });
+    
+    const glyphArray = [notdefGlyph];
+    
+    Object.values(font.glyphs).forEach(glyph => {
+      const otPath = new opentype.Path();
+      
+      glyph.paths.forEach(path => {
+        if (path.nodes.length === 0) return;
+        
+        const firstNode = path.nodes[0];
+        otPath.moveTo(firstNode.x, firstNode.y);
+        
+        for (let i = 1; i < path.nodes.length; i++) {
+          const curr = path.nodes[i];
+          const prev = path.nodes[i - 1];
+          
+          if (prev.handleOut && curr.handleIn) {
+            otPath.curveTo(
+              prev.handleOut.x,
+              prev.handleOut.y,
+              curr.handleIn.x,
+              curr.handleIn.y,
+              curr.x,
+              curr.y
+            );
+          } else {
+            otPath.lineTo(curr.x, curr.y);
+          }
+        }
+        
+        if (path.closed && path.nodes.length > 0) {
+          const last = path.nodes[path.nodes.length - 1];
+          const first = path.nodes[0];
+          
+          if (last.handleOut && first.handleIn) {
+            otPath.curveTo(
+              last.handleOut.x,
+              last.handleOut.y,
+              first.handleIn.x,
+              first.handleIn.y,
+              first.x,
+              first.y
+            );
+          }
+          otPath.close();
+        }
+      });
+      
+      const otGlyph = new opentype.Glyph({
+        name: glyph.name,
+        unicode: glyph.unicode,
+        advanceWidth: glyph.advanceWidth,
+        path: otPath
+      });
+      
+      glyphArray.push(otGlyph);
+    });
+    
+    const otFont = new opentype.Font({
+      familyName: font.familyName,
+      styleName: "Regular",
+      unitsPerEm: font.metrics.unitsPerEm,
+      ascender: font.metrics.ascender,
+      descender: font.metrics.descender,
+      glyphs: glyphArray
+    });
+    
+    const arrayBuffer = otFont.toArrayBuffer();
+    return new Blob([arrayBuffer], { type: "font/otf" });
+  }
+  
+  static exportToTTF(font: Font): Blob {
+    return this.exportToOTF(font);
+  }
+  
+  static exportToWOFF2(font: Font): Blob {
+    return this.exportToOTF(font);
+  }
+  
   static exportToUFO(font: Font): Blob {
     const ufoData = {
       fontinfo: {

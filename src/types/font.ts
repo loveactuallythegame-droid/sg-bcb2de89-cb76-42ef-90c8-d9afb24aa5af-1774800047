@@ -8,7 +8,6 @@ export interface BezierNode extends Point {
   type: "on-curve" | "off-curve";
   handleIn?: Point;
   handleOut?: Point;
-  selected?: boolean;
 }
 
 export interface Path {
@@ -52,18 +51,10 @@ export interface Font {
   modified: Date;
 }
 
-export type Tool = 
-  | "select"
-  | "pen"
-  | "knife"
-  | "ruler"
-  | "rectangle"
-  | "ellipse"
-  | "hand";
+export type Tool = "select" | "pen" | "rectangle" | "ellipse" | "hand";
 
 export interface EditorState {
-  currentFont: Font | null;
-  currentGlyph: Glyph | null;
+  selectedGlyph: Glyph | null;
   selectedTool: Tool;
   zoom: number;
   pan: Point;

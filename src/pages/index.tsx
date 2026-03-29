@@ -140,8 +140,6 @@ export default function Home() {
   const tools: Array<{ tool: Tool; icon: typeof MousePointer2; label: string; shortcut?: string }> = [
     { tool: "select", icon: MousePointer2, label: "Select Tool", shortcut: "V" },
     { tool: "pen", icon: Pen, label: "Pen Tool", shortcut: "P" },
-    { tool: "knife", icon: Scissors, label: "Knife Tool", shortcut: "K" },
-    { tool: "ruler", icon: Ruler, label: "Ruler Tool", shortcut: "R" },
     { tool: "rectangle", icon: Square, label: "Rectangle Tool", shortcut: "M" },
     { tool: "ellipse", icon: Circle, label: "Ellipse Tool", shortcut: "O" },
     { tool: "hand", icon: Hand, label: "Hand Tool (Pan)", shortcut: "H" },

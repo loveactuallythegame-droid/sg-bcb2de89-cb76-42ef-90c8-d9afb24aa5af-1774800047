@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Font } from "@/types/font";
 import { FontFormats } from "@/lib/fontFormats";
-import { X, Download, FileJson, FileImage, Package } from "lucide-react";
+import { X, Download, FileJson, FileImage, Package, FileType } from "lucide-react";
 
 interface ExportModalProps {
   font: Font;
@@ -10,7 +10,7 @@ interface ExportModalProps {
 }
 
 export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
-  const [selectedFormat, setSelectedFormat] = useState<"json" | "ufo" | "svg">("json");
+  const [selectedFormat, setSelectedFormat] = useState<"otf" | "ttf" | "woff2" | "json" | "ufo" | "svg">("otf");
   const [isExporting, setIsExporting] = useState(false);
   
   if (!isOpen) return null;
@@ -23,6 +23,18 @@ export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
       let filename: string;
       
       switch (selectedFormat) {
+        case "otf":
+          blob = FontFormats.exportToOTF(font);
+          filename = `${font.familyName.replace(/\s/g, "_")}.otf`;
+          break;
+        case "ttf":
+          blob = FontFormats.exportToTTF(font);
+          filename = `${font.familyName.replace(/\s/g, "_")}.ttf`;
+          break;
+        case "woff2":
+          blob = FontFormats.exportToWOFF2(font);
+          filename = `${font.familyName.replace(/\s/g, "_")}.woff2`;
+          break;
         case "json":
           blob = FontFormats.exportToJSON(font);
           filename = `${font.familyName.replace(/\s/g, "_")}.json`;
@@ -52,11 +64,36 @@ export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
   
   const formats = [
     {
+      id: "otf",
+      name: "OpenType Font (.otf)",
+      description: "Installable desktop font with PostScript curves",
+      icon: FileType,
+      extension: ".otf",
+      recommended: true,
+    },
+    {
+      id: "ttf",
+      name: "TrueType Font (.ttf)",
+      description: "Universal font format, works everywhere",
+      icon: FileType,
+      extension: ".ttf",
+      recommended: true,
+    },
+    {
+      id: "woff2",
+      name: "Web Font (.woff2)",
+      description: "Compressed web font format",
+      icon: FileType,
+      extension: ".woff2",
+      recommended: false,
+    },
+    {
       id: "json",
       name: "I ❤️ Fonts Project",
       description: "Full project file with all glyphs, paths, and settings",
       icon: FileJson,
       extension: ".json",
+      recommended: false,
     },
     {
       id: "ufo",
@@ -64,6 +101,7 @@ export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
       description: "Industry-standard font source format",
       icon: Package,
       extension: ".ufo.json",
+      recommended: false,
     },
     {
       id: "svg",
@@ -71,6 +109,7 @@ export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
       description: "Visual preview grid of all glyphs",
       icon: FileImage,
       extension: ".svg",
+      recommended: false,
     },
   ];
   
@@ -119,6 +158,11 @@ export function ExportModal({ font, isOpen, onClose }: ExportModalProps) {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="font-semibold">{format.name}</h3>
+                      {format.recommended && (
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-accent/20 text-accent">
+                          Recommended
+                        </span>
+                      )}
                       <span className="text-xs text-muted-foreground font-mono">
                         {format.extension}
                       </span>

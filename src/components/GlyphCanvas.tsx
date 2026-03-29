@@ -579,9 +579,21 @@ export function GlyphCanvas({
         </div>
       )}
       
+      {selectedTool === "pen" && (
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
+          Click to add points • Click near first point to close path
+        </div>
+      )}
+      
       {(selectedTool === "rectangle" || selectedTool === "ellipse") && (
         <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
-          Drag to create {selectedTool} • Shift: constrain proportions
+          Drag to create {selectedTool}
+        </div>
+      )}
+      
+      {selectedTool === "hand" && (
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
+          Drag to pan canvas • Scroll to zoom
         </div>
       )}
     </div>
