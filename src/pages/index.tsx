@@ -49,6 +49,7 @@ export default function Home() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
+  const [clipboardPaths, setClipboardPaths] = useState<Path[]>([]);
   
   useEffect(() => {
     if (glyph && selectedGlyph && glyph.id === selectedGlyph.id) {
@@ -189,6 +190,102 @@ export default function Home() {
       paths: glyph.paths.map(path => PathOperations.scale(path, scaleX, scaleY, centerX, centerY)),
     };
     setGlyph(scaledGlyph);
+  };
+  
+  const handleRoundCorners = (radius: number) => {
+    if (!glyph) return;
+    const roundedGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.roundCorners(path, radius)),
+    };
+    setGlyph(roundedGlyph);
+  };
+  
+  const handleCorrectDirection = () => {
+    if (!glyph) return;
+    const correctedGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.correctDirection(path)),
+    };
+    setGlyph(correctedGlyph);
+  };
+  
+  const handleAddExtrema = () => {
+    if (!glyph) return;
+    const extremaGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.addExtrema(path)),
+    };
+    setGlyph(extremaGlyph);
+  };
+  
+  const handleCopyPaths = () => {
+    if (!glyph) return;
+    setClipboardPaths([...glyph.paths]);
+  };
+  
+  const handlePastePaths = () => {
+    if (!glyph || clipboardPaths.length === 0) return;
+    const pastedGlyph = {
+      ...glyph,
+      paths: [...glyph.paths, ...clipboardPaths.map(path => ({
+        ...path,
+        id: FontEngine.generateUID(),
+        nodes: path.nodes.map(node => ({
+          ...node,
+          id: FontEngine.generateUID(),
+          x: node.x + 50,
+          y: node.y + 50,
+        })),
+      }))],
+    };
+    setGlyph(pastedGlyph);
+  };
+  
+  const handleDuplicateGlyph = () => {
+    if (!selectedGlyph) return;
+    
+    const newGlyph: Glyph = {
+      id: FontEngine.generateUID(),
+      name: `${selectedGlyph.name}_copy`,
+      unicode: undefined,
+      advanceWidth: selectedGlyph.advanceWidth,
+      leftSidebearing: selectedGlyph.leftSidebearing,
+      paths: selectedGlyph.paths.map(path => ({
+        ...path,
+        id: FontEngine.generateUID(),
+        nodes: path.nodes.map(node => ({
+          ...node,
+          id: FontEngine.generateUID(),
+        })),
+      })),
+    };
+    
+    setFont(prev => ({
+      ...prev,
+      glyphs: {
+        ...prev.glyphs,
+        [newGlyph.id]: newGlyph,
+      },
+    }));
+    
+    handleGlyphSelect(newGlyph);
+  };
+  
+  const handleDeleteGlyph = () => {
+    if (!selectedGlyph) return;
+    
+    const updatedGlyphs = { ...font.glyphs };
+    delete updatedGlyphs[selectedGlyph.id];
+    
+    setFont(prev => ({
+      ...prev,
+      glyphs: updatedGlyphs,
+    }));
+    
+    setSelectedGlyph(null);
+    setGlyph(null);
+    setViewMode("grid");
   };
   
   const tools: Array<{ tool: Tool; icon: typeof MousePointer2; label: string; shortcut?: string }> = [
@@ -518,6 +615,73 @@ export default function Home() {
                         </div>
                         
                         <div className="pt-4 border-t border-border">
+                          <div className="text-sm font-semibold mb-3">Path Operations</div>
+                          <div className="space-y-2">
+                            <button
+                              onClick={() => handleRoundCorners(30)}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Round Corners
+                            </button>
+                            <button
+                              onClick={handleCorrectDirection}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Fix Path Direction
+                            </button>
+                            <button
+                              onClick={handleAddExtrema}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Add Points at Curve Peaks
+                            </button>
+                            <button
+                              onClick={() => {
+                                const simplified = {
+                                  ...glyph,
+                                  paths: glyph.paths.map(p => FontEngine.simplifyPath(p, 5)),
+                                };
+                                setGlyph(simplified);
+                              }}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Clean Up Unnecessary Points
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="pt-4 border-t border-border">
+                          <div className="text-sm font-semibold mb-3">Clipboard</div>
+                          <div className="space-y-2">
+                            <button
+                              onClick={handleCopyPaths}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Copy Paths
+                            </button>
+                            <button
+                              onClick={handlePastePaths}
+                              disabled={clipboardPaths.length === 0}
+                              className="btn-secondary w-full text-sm disabled:opacity-50"
+                            >
+                              Paste Paths
+                            </button>
+                            <button
+                              onClick={handleDuplicateGlyph}
+                              className="btn-secondary w-full text-sm"
+                            >
+                              Duplicate Glyph
+                            </button>
+                            <button
+                              onClick={handleDeleteGlyph}
+                              className="btn-secondary w-full text-sm text-destructive"
+                            >
+                              Delete Glyph
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="pt-4 border-t border-border">
                           <div className="text-sm text-muted-foreground mb-2">Statistics</div>
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
@@ -538,26 +702,13 @@ export default function Home() {
                         <div className="pt-4 space-y-2">
                           <button
                             onClick={() => {
-                              const simplified = {
-                                ...glyph,
-                                paths: glyph.paths.map(p => FontEngine.simplifyPath(p, 5)),
-                              };
-                              setGlyph(simplified);
-                            }}
-                            className="btn-secondary w-full text-sm"
-                          >
-                            Clean Up Points
-                          </button>
-                          
-                          <button
-                            onClick={() => {
                               navigator.clipboard.writeText(
                                 JSON.stringify({ advanceWidth: glyph.advanceWidth, leftSidebearing: glyph.leftSidebearing })
                               );
                             }}
                             className="btn-secondary w-full text-sm"
                           >
-                            Copy Box
+                            Copy Box Containing Glyph
                           </button>
                           
                           <button
@@ -567,7 +718,7 @@ export default function Home() {
                             }}
                             className="btn-secondary w-full text-sm"
                           >
-                            Copy Width
+                            Copy Just Glyph's Visual Width
                           </button>
                         </div>
                       </div>
@@ -718,6 +869,15 @@ export default function Home() {
                                 className="btn-secondary w-full"
                               >
                                 Clean Up Points
+                              </button>
+                              <button
+                                onClick={() => {
+                                  handleDuplicateGlyph();
+                                  setShowPropertiesPanel(false);
+                                }}
+                                className="btn-secondary w-full"
+                              >
+                                Duplicate Glyph
                               </button>
                             </div>
                           </div>
