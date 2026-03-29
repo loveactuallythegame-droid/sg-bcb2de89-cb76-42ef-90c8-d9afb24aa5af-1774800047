@@ -9,7 +9,7 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { KerningEditor } from "@/components/KerningEditor";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
-import { Font, Glyph, Tool, ViewMode } from "@/types/font";
+import { Font, Glyph, Tool, ViewMode, Path } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
 import { PathOperations } from "@/lib/pathOperations";
 import { 
