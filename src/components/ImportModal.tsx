@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { Font } from "@/types/font";
 import { FontFormats } from "@/lib/fontFormats";
-import { X, Upload, FileJson, Package } from "lucide-react";
+import { X, Upload, FileJson, Package, FileType } from "lucide-react";
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -28,15 +28,18 @@ export function ImportModal({ isOpen, onClose, onImport }: ImportModalProps) {
         } else {
           font = await FontFormats.importFromJSON(file);
         }
+      } else if (file.name.endsWith(".ttf") || file.name.endsWith(".otf") || file.name.endsWith(".woff") || file.name.endsWith(".woff2")) {
+        font = await FontFormats.importFromBinaryFont(file);
       } else {
-        throw new Error("Unsupported file format");
+        throw new Error("Unsupported file format. Please use TTF, OTF, WOFF, WOFF2, or JSON formats.");
       }
       
       onImport(font);
       onClose();
     } catch (error) {
       console.error("Import failed:", error);
-      alert("Import failed. Please check the file format and try again.");
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      alert(`Import failed: ${errorMessage}\n\nPlease check the file format and try again.`);
     } finally {
       setIsImporting(false);
     }
@@ -90,7 +93,7 @@ export function ImportModal({ isOpen, onClose, onImport }: ImportModalProps) {
             Import Font File
           </h2>
           <p className="text-sm text-muted-foreground">
-            Import an existing font project or UFO file
+            Import an existing font file to edit in I ❤️ Fonts
           </p>
         </div>
         
@@ -113,7 +116,7 @@ export function ImportModal({ isOpen, onClose, onImport }: ImportModalProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,.ufo"
+            accept=".ttf,.otf,.woff,.woff2,.json,.ufo"
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -128,6 +131,18 @@ export function ImportModal({ isOpen, onClose, onImport }: ImportModalProps) {
         </div>
         
         <div className="mt-6 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-accent/20">
+              <FileType className="w-5 h-5 text-accent" />
+            </div>
+            <div>
+              <h4 className="font-semibold text-sm mb-1">Font Files (.ttf, .otf, .woff, .woff2)</h4>
+              <p className="text-xs text-muted-foreground">
+                Import any standard font file format - we'll convert it to editable paths
+              </p>
+            </div>
+          </div>
+          
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-accent/20">
               <FileJson className="w-5 h-5 text-accent" />

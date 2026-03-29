@@ -1,7 +1,185 @@
 import { Font, Glyph, Path, BezierNode } from "@/types/font";
 import { FontEngine } from "./fontEngine";
+import opentype from "opentype.js";
 
 export class FontFormats {
+  
+  static async importFromBinaryFont(file: File): Promise<Font> {
+    const arrayBuffer = await file.arrayBuffer();
+    const otFont = opentype.parse(arrayBuffer);
+    
+    const glyphs: Record<string, Glyph> = {};
+    
+    for (let i = 0; i < otFont.glyphs.length; i++) {
+      const otGlyph = otFont.glyphs.get(i);
+      if (!otGlyph.path) continue;
+      
+      const paths: Path[] = this.convertOpenTypePath(otGlyph.path);
+      
+      const glyphName = otGlyph.name || `glyph${i}`;
+      const unicode = otGlyph.unicode;
+      
+      const glyph: Glyph = {
+        id: FontEngine.generateUID(),
+        name: glyphName,
+        unicode: unicode,
+        advanceWidth: otGlyph.advanceWidth || 600,
+        leftSidebearing: otGlyph.leftSideBearing || 0,
+        paths,
+      };
+      
+      glyphs[glyph.id] = glyph;
+    }
+    
+    const unitsPerEm = otFont.unitsPerEm || 1000;
+    const ascender = otFont.ascender || 800;
+    const descender = otFont.descender || -200;
+    
+    return {
+      id: FontEngine.generateUID(),
+      name: otFont.names.fullName?.en || otFont.names.fontFamily?.en || "Imported Font",
+      familyName: otFont.names.fontFamily?.en || "Imported Font",
+      version: otFont.names.version?.en || "1.0",
+      metrics: {
+        unitsPerEm,
+        ascender,
+        descender,
+        capHeight: (otFont.tables.os2 as any)?.sCapHeight || Math.round(ascender * 0.7),
+        xHeight: (otFont.tables.os2 as any)?.sxHeight || Math.round(ascender * 0.5),
+      },
+      glyphs,
+      kerningPairs: this.extractKerningPairs(otFont),
+      created: new Date(),
+      modified: new Date(),
+    };
+  }
+  
+  static convertOpenTypePath(otPath: any): Path[] {
+    const commands = otPath.commands;
+    if (!commands || commands.length === 0) return [];
+    
+    const paths: Path[] = [];
+    let currentPath: Path | null = null;
+    let currentNodes: BezierNode[] = [];
+    
+    for (const cmd of commands) {
+      switch (cmd.type) {
+        case "M":
+          if (currentNodes.length > 0 && currentPath) {
+            currentPath.nodes = currentNodes;
+            paths.push(currentPath);
+          }
+          currentPath = {
+            id: FontEngine.generateUID(),
+            nodes: [],
+            closed: false,
+          };
+          currentNodes = [{
+            id: FontEngine.generateUID(),
+            x: Math.round(cmd.x),
+            y: Math.round(cmd.y),
+            type: "on-curve",
+          }];
+          break;
+          
+        case "L":
+          currentNodes.push({
+            id: FontEngine.generateUID(),
+            x: Math.round(cmd.x),
+            y: Math.round(cmd.y),
+            type: "on-curve",
+          });
+          break;
+          
+        case "C":
+          const lastNode = currentNodes[currentNodes.length - 1];
+          if (lastNode) {
+            lastNode.handleOut = {
+              x: Math.round(cmd.x1),
+              y: Math.round(cmd.y1),
+            };
+          }
+          currentNodes.push({
+            id: FontEngine.generateUID(),
+            x: Math.round(cmd.x),
+            y: Math.round(cmd.y),
+            type: "on-curve",
+            handleIn: {
+              x: Math.round(cmd.x2),
+              y: Math.round(cmd.y2),
+            },
+          });
+          break;
+          
+        case "Q":
+          const prevNode = currentNodes[currentNodes.length - 1];
+          if (prevNode) {
+            const cp1x = prevNode.x + (2/3) * (cmd.x1 - prevNode.x);
+            const cp1y = prevNode.y + (2/3) * (cmd.y1 - prevNode.y);
+            const cp2x = cmd.x + (2/3) * (cmd.x1 - cmd.x);
+            const cp2y = cmd.y + (2/3) * (cmd.y1 - cmd.y);
+            
+            prevNode.handleOut = {
+              x: Math.round(cp1x),
+              y: Math.round(cp1y),
+            };
+            currentNodes.push({
+              id: FontEngine.generateUID(),
+              x: Math.round(cmd.x),
+              y: Math.round(cmd.y),
+              type: "on-curve",
+              handleIn: {
+                x: Math.round(cp2x),
+                y: Math.round(cp2y),
+              },
+            });
+          }
+          break;
+          
+        case "Z":
+          if (currentPath) {
+            currentPath.closed = true;
+          }
+          break;
+      }
+    }
+    
+    if (currentNodes.length > 0 && currentPath) {
+      currentPath.nodes = currentNodes;
+      paths.push(currentPath);
+    }
+    
+    return paths;
+  }
+  
+  static extractKerningPairs(otFont: any): Record<string, number> {
+    const kerningPairs: Record<string, number> = {};
+    
+    if (otFont.tables.gpos && otFont.tables.gpos.lookups) {
+      for (const lookup of otFont.tables.gpos.lookups) {
+        if (lookup.lookupType === 2) {
+          for (const subtable of lookup.subtables) {
+            if (subtable.coverage && subtable.coverage.glyphs) {
+              for (let i = 0; i < subtable.coverage.glyphs.length; i++) {
+                const leftGlyph = otFont.glyphs.get(subtable.coverage.glyphs[i]);
+                if (subtable.pairSets && subtable.pairSets[i]) {
+                  for (const pair of subtable.pairSets[i]) {
+                    const rightGlyph = otFont.glyphs.get(pair.secondGlyph);
+                    if (leftGlyph && rightGlyph && pair.value1 && pair.value1.xAdvance) {
+                      const key = `${leftGlyph.name}_${rightGlyph.name}`;
+                      kerningPairs[key] = pair.value1.xAdvance;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return kerningPairs;
+  }
   
   static exportToUFO(font: Font): Blob {
     const ufoData = {
