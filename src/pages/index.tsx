@@ -72,12 +72,6 @@ export default function Home() {
           case "p":
             setSelectedTool("pen");
             break;
-          case "k":
-            setSelectedTool("knife");
-            break;
-          case "r":
-            setSelectedTool("ruler");
-            break;
           case "m":
             setSelectedTool("rectangle");
             break;
