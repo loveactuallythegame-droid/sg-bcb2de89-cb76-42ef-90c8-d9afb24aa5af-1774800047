@@ -3,6 +3,8 @@ import { SEO } from "@/components/SEO";
 import { Layout } from "@/components/Layout";
 import { GlyphCanvas } from "@/components/GlyphCanvas";
 import { GlyphGrid } from "@/components/GlyphGrid";
+import { ExportModal } from "@/components/ExportModal";
+import { ImportModal } from "@/components/ImportModal";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { Font, Glyph, Tool } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
@@ -37,6 +39,8 @@ export default function Home() {
   const { state: glyph, setState: setGlyph, undo, redo, canUndo, canRedo } = useUndoRedo<Glyph | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool>("select");
   const [zoom, setZoom] = useState(1);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   
   useEffect(() => {
     if (glyph && selectedGlyph && glyph.id === selectedGlyph.id) {
@@ -92,11 +96,17 @@ export default function Home() {
   ];
   
   const handleExport = () => {
-    alert("Export feature coming soon! Will support OTF, TTF, WOFF2 formats.");
+    setIsExportModalOpen(true);
   };
   
   const handleImport = () => {
-    alert("Import feature coming soon! Will support UFO, OTF, TTF formats.");
+    setIsImportModalOpen(true);
+  };
+  
+  const handleFontImport = (importedFont: Font) => {
+    setFont(importedFont);
+    setSelectedGlyph(null);
+    setGlyph(null);
   };
   
   return (
@@ -328,6 +338,18 @@ export default function Home() {
           </main>
         </div>
       </Layout>
+      
+      <ExportModal
+        font={font}
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+      />
+      
+      <ImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImport={handleFontImport}
+      />
     </>
   );
 }
