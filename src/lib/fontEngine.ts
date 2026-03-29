@@ -41,6 +41,76 @@ export class FontEngine {
     return bbox.xMax - bbox.xMin;
   }
   
+  static createRectangle(x: number, y: number, width: number, height: number): Path {
+    const nodes: BezierNode[] = [
+      { id: this.generateUID(), x, y, type: "on-curve" },
+      { id: this.generateUID(), x: x + width, y, type: "on-curve" },
+      { id: this.generateUID(), x: x + width, y: y + height, type: "on-curve" },
+      { id: this.generateUID(), x, y: y + height, type: "on-curve" },
+    ];
+    
+    return {
+      id: this.generateUID(),
+      nodes,
+      closed: true,
+    };
+  }
+  
+  static createEllipse(cx: number, cy: number, rx: number, ry: number): Path {
+    const KAPPA = 0.5522847498;
+    const ox = rx * KAPPA;
+    const oy = ry * KAPPA;
+    
+    const nodes: BezierNode[] = [
+      {
+        id: this.generateUID(),
+        x: cx,
+        y: cy - ry,
+        type: "on-curve",
+        handleIn: { x: cx - ox, y: cy - ry },
+        handleOut: { x: cx + ox, y: cy - ry },
+      },
+      {
+        id: this.generateUID(),
+        x: cx + rx,
+        y: cy,
+        type: "on-curve",
+        handleIn: { x: cx + rx, y: cy - oy },
+        handleOut: { x: cx + rx, y: cy + oy },
+      },
+      {
+        id: this.generateUID(),
+        x: cx,
+        y: cy + ry,
+        type: "on-curve",
+        handleIn: { x: cx + ox, y: cy + ry },
+        handleOut: { x: cx - ox, y: cy + ry },
+      },
+      {
+        id: this.generateUID(),
+        x: cx - rx,
+        y: cy,
+        type: "on-curve",
+        handleIn: { x: cx - rx, y: cy + oy },
+        handleOut: { x: cx - rx, y: cy - oy },
+      },
+    ];
+    
+    return {
+      id: this.generateUID(),
+      nodes,
+      closed: true,
+    };
+  }
+  
+  static addHandlesToNode(node: BezierNode, handleLength: number = 50): BezierNode {
+    return {
+      ...node,
+      handleIn: node.handleIn || { x: node.x - handleLength, y: node.y },
+      handleOut: node.handleOut || { x: node.x + handleLength, y: node.y },
+    };
+  }
+  
   static pathToSVG(path: Path): string {
     if (path.nodes.length === 0) return "";
     

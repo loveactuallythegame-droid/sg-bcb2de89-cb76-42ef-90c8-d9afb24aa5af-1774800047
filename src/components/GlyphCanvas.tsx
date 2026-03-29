@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState, MouseEvent, WheelEvent } from "react";
-import { Glyph, BezierNode, Point, Tool } from "@/types/font";
+import { useRef, useEffect, useState, MouseEvent, WheelEvent, KeyboardEvent } from "react";
+import { Glyph, BezierNode, Point, Tool, Path } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
 
 interface GlyphCanvasProps {
@@ -8,6 +8,8 @@ interface GlyphCanvasProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onGlyphChange: (glyph: Glyph) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export function GlyphCanvas({
@@ -16,17 +18,23 @@ export function GlyphCanvas({
   zoom,
   onZoomChange,
   onGlyphChange,
+  onUndo,
+  onRedo,
 }: GlyphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point>({ x: 0, y: 0 });
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null);
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   
   const GRID_SIZE = 50;
   const NODE_RADIUS = 6;
   const HANDLE_RADIUS = 4;
+  const SELECTION_TOLERANCE = 15;
   
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,7 +61,33 @@ export function GlyphCanvas({
     if (glyph) {
       drawGlyph(ctx, glyph);
     }
-  }, [glyph, zoom, pan, selectedNodeId]);
+  }, [glyph, zoom, pan, selectedNodeIds, hoveredNodeId, selectedHandleId]);
+  
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        onUndo?.();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "Z" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        onRedo?.();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        deleteSelectedNodes();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+        e.preventDefault();
+        selectAllNodes();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setSelectedNodeIds(new Set());
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [glyph, selectedNodeIds, onUndo, onRedo]);
   
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.save();
@@ -131,7 +165,8 @@ export function GlyphCanvas({
           ctx.lineTo(node.handleIn.x, node.handleIn.y);
           ctx.stroke();
           
-          ctx.fillStyle = "hsl(var(--handle))";
+          const isSelectedHandle = selectedHandleId === `${node.id}-in`;
+          ctx.fillStyle = isSelectedHandle ? "hsl(var(--accent))" : "hsl(var(--handle))";
           ctx.beginPath();
           ctx.arc(node.handleIn.x, node.handleIn.y, HANDLE_RADIUS / zoom, 0, Math.PI * 2);
           ctx.fill();
@@ -145,13 +180,24 @@ export function GlyphCanvas({
           ctx.lineTo(node.handleOut.x, node.handleOut.y);
           ctx.stroke();
           
-          ctx.fillStyle = "hsl(var(--handle))";
+          const isSelectedHandle = selectedHandleId === `${node.id}-out`;
+          ctx.fillStyle = isSelectedHandle ? "hsl(var(--accent))" : "hsl(var(--handle))";
           ctx.beginPath();
           ctx.arc(node.handleOut.x, node.handleOut.y, HANDLE_RADIUS / zoom, 0, Math.PI * 2);
           ctx.fill();
         }
         
-        const isSelected = node.id === selectedNodeId;
+        const isSelected = selectedNodeIds.has(node.id);
+        const isHovered = hoveredNodeId === node.id;
+        
+        if (isHovered || isSelected) {
+          ctx.strokeStyle = "hsl(var(--accent) / 0.3)";
+          ctx.lineWidth = 8 / zoom;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, (NODE_RADIUS + 4) / zoom, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        
         ctx.fillStyle = isSelected ? "hsl(var(--node-selected))" : "hsl(var(--node))";
         ctx.strokeStyle = "hsl(var(--background))";
         ctx.lineWidth = 2 / zoom;
@@ -180,6 +226,56 @@ export function GlyphCanvas({
     return { x: worldX, y: worldY };
   };
   
+  const findNodeAtPoint = (worldPos: Point, tolerance: number = SELECTION_TOLERANCE): { pathIndex: number; nodeIndex: number; node: BezierNode } | null => {
+    if (!glyph) return null;
+    
+    for (let pathIndex = 0; pathIndex < glyph.paths.length; pathIndex++) {
+      const path = glyph.paths[pathIndex];
+      for (let nodeIndex = 0; nodeIndex < path.nodes.length; nodeIndex++) {
+        const node = path.nodes[nodeIndex];
+        const dx = worldPos.x - node.x;
+        const dy = worldPos.y - node.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < tolerance / zoom) {
+          return { pathIndex, nodeIndex, node };
+        }
+      }
+    }
+    
+    return null;
+  };
+  
+  const findHandleAtPoint = (worldPos: Point, tolerance: number = SELECTION_TOLERANCE): { nodeId: string; handleType: "in" | "out"; handle: Point } | null => {
+    if (!glyph) return null;
+    
+    for (const path of glyph.paths) {
+      for (const node of path.nodes) {
+        if (node.handleIn) {
+          const dx = worldPos.x - node.handleIn.x;
+          const dy = worldPos.y - node.handleIn.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < tolerance / zoom) {
+            return { nodeId: node.id, handleType: "in", handle: node.handleIn };
+          }
+        }
+        
+        if (node.handleOut) {
+          const dx = worldPos.x - node.handleOut.x;
+          const dy = worldPos.y - node.handleOut.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < tolerance / zoom) {
+            return { nodeId: node.id, handleType: "out", handle: node.handleOut };
+          }
+        }
+      }
+    }
+    
+    return null;
+  };
+  
   const handleWheel = (e: WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     
@@ -199,25 +295,33 @@ export function GlyphCanvas({
     }
     
     if (selectedTool === "select" && glyph) {
-      let foundNode = false;
-      
-      for (const path of glyph.paths) {
-        for (const node of path.nodes) {
-          const dx = worldPos.x - node.x;
-          const dy = worldPos.y - node.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          
-          if (distance < NODE_RADIUS * 2 / zoom) {
-            setSelectedNodeId(node.id);
-            foundNode = true;
-            break;
-          }
-        }
-        if (foundNode) break;
+      const handle = findHandleAtPoint(worldPos);
+      if (handle) {
+        setSelectedHandleId(`${handle.nodeId}-${handle.handleType}`);
+        setDraggedNodeId(handle.nodeId);
+        return;
       }
       
-      if (!foundNode) {
-        setSelectedNodeId(null);
+      const found = findNodeAtPoint(worldPos);
+      if (found) {
+        if (e.shiftKey) {
+          const newSelection = new Set(selectedNodeIds);
+          if (newSelection.has(found.node.id)) {
+            newSelection.delete(found.node.id);
+          } else {
+            newSelection.add(found.node.id);
+          }
+          setSelectedNodeIds(newSelection);
+        } else if (!selectedNodeIds.has(found.node.id)) {
+          setSelectedNodeIds(new Set([found.node.id]));
+        }
+        setDraggedNodeId(found.node.id);
+        setDragStart(worldPos);
+        return;
+      }
+      
+      if (!e.shiftKey) {
+        setSelectedNodeIds(new Set());
       }
     }
     
@@ -240,7 +344,16 @@ export function GlyphCanvas({
       } else {
         const lastPath = updatedGlyph.paths[updatedGlyph.paths.length - 1];
         if (!lastPath.closed) {
-          lastPath.nodes.push(newNode);
+          const firstNode = lastPath.nodes[0];
+          const dx = worldPos.x - firstNode.x;
+          const dy = worldPos.y - firstNode.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < SELECTION_TOLERANCE / zoom && lastPath.nodes.length > 2) {
+            lastPath.closed = true;
+          } else {
+            lastPath.nodes.push(newNode);
+          }
         } else {
           updatedGlyph.paths.push({
             id: FontEngine.generateUID(),
@@ -252,19 +365,115 @@ export function GlyphCanvas({
       
       onGlyphChange(updatedGlyph);
     }
+    
+    if (selectedTool === "rectangle" && glyph) {
+      setDragStart(worldPos);
+      setIsDragging(true);
+    }
   };
   
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
-    if (isDragging) {
+    const worldPos = canvasToWorld(e.clientX, e.clientY);
+    
+    if (selectedTool === "select" && !isDragging) {
+      const found = findNodeAtPoint(worldPos);
+      setHoveredNodeId(found ? found.node.id : null);
+    }
+    
+    if (isDragging && (selectedTool === "hand" || e.button === 1)) {
       setPan({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y,
       });
+      return;
+    }
+    
+    if (draggedNodeId && selectedTool === "select" && glyph) {
+      if (selectedHandleId) {
+        const [nodeId, handleType] = selectedHandleId.split("-");
+        const updatedGlyph = { ...glyph };
+        
+        for (const path of updatedGlyph.paths) {
+          const node = path.nodes.find(n => n.id === nodeId);
+          if (node) {
+            if (handleType === "in" && node.handleIn) {
+              node.handleIn = {
+                x: Math.round(worldPos.x / 10) * 10,
+                y: Math.round(worldPos.y / 10) * 10,
+              };
+            } else if (handleType === "out" && node.handleOut) {
+              node.handleOut = {
+                x: Math.round(worldPos.x / 10) * 10,
+                y: Math.round(worldPos.y / 10) * 10,
+              };
+            }
+            break;
+          }
+        }
+        
+        onGlyphChange(updatedGlyph);
+      } else {
+        const dx = worldPos.x - dragStart.x;
+        const dy = worldPos.y - dragStart.y;
+        
+        const updatedGlyph = { ...glyph };
+        
+        for (const path of updatedGlyph.paths) {
+          for (const node of path.nodes) {
+            if (selectedNodeIds.has(node.id)) {
+              node.x = Math.round((node.x + dx) / 10) * 10;
+              node.y = Math.round((node.y + dy) / 10) * 10;
+              
+              if (node.handleIn) {
+                node.handleIn.x += dx;
+                node.handleIn.y += dy;
+              }
+              if (node.handleOut) {
+                node.handleOut.x += dx;
+                node.handleOut.y += dy;
+              }
+            }
+          }
+        }
+        
+        setDragStart(worldPos);
+        onGlyphChange(updatedGlyph);
+      }
     }
   };
   
   const handleMouseUp = () => {
     setIsDragging(false);
+    setDraggedNodeId(null);
+    setSelectedHandleId(null);
+  };
+  
+  const deleteSelectedNodes = () => {
+    if (!glyph || selectedNodeIds.size === 0) return;
+    
+    const updatedGlyph = { ...glyph };
+    updatedGlyph.paths = updatedGlyph.paths
+      .map(path => ({
+        ...path,
+        nodes: path.nodes.filter(node => !selectedNodeIds.has(node.id)),
+      }))
+      .filter(path => path.nodes.length > 0);
+    
+    onGlyphChange(updatedGlyph);
+    setSelectedNodeIds(new Set());
+  };
+  
+  const selectAllNodes = () => {
+    if (!glyph) return;
+    
+    const allNodeIds = new Set<string>();
+    glyph.paths.forEach(path => {
+      path.nodes.forEach(node => {
+        allNodeIds.add(node.id);
+      });
+    });
+    
+    setSelectedNodeIds(allNodeIds);
   };
   
   return (
@@ -279,9 +488,18 @@ export function GlyphCanvas({
         className="absolute inset-0 cursor-crosshair"
       />
       
-      <div className="absolute bottom-4 right-4 glass-panel px-3 py-2 rounded-lg text-sm">
-        Zoom: {Math.round(zoom * 100)}%
+      <div className="absolute bottom-4 right-4 glass-panel px-3 py-2 rounded-lg text-sm space-y-1">
+        <div>Zoom: {Math.round(zoom * 100)}%</div>
+        {selectedNodeIds.size > 0 && (
+          <div className="text-accent">Selected: {selectedNodeIds.size} node{selectedNodeIds.size !== 1 ? "s" : ""}</div>
+        )}
       </div>
+      
+      {selectedTool === "select" && (
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
+          Click: select • Shift+Click: multi-select • Drag: move • Delete: remove • Cmd/Ctrl+A: select all
+        </div>
+      )}
     </div>
   );
 }
