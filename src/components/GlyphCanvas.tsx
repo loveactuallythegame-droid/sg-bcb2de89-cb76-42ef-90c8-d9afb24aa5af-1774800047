@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, MouseEvent, WheelEvent, KeyboardEvent } from "react";
+import { useRef, useEffect, useState, MouseEvent, WheelEvent, TouchEvent } from "react";
 import { Glyph, BezierNode, Point, Tool, Path } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
 
@@ -31,11 +31,12 @@ export function GlyphCanvas({
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [shapePreview, setShapePreview] = useState<{ start: Point; end: Point } | null>(null);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number; dist: number } | null>(null);
   
   const GRID_SIZE = 50;
-  const NODE_RADIUS = 6;
-  const HANDLE_RADIUS = 4;
-  const SELECTION_TOLERANCE = 15;
+  const NODE_RADIUS = 8;
+  const HANDLE_RADIUS = 6;
+  const SELECTION_TOLERANCE = 20;
   
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -47,25 +48,37 @@ export function GlyphCanvas({
     const container = containerRef.current;
     if (!container) return;
     
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = container.getBoundingClientRect();
     
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
     
-    ctx.translate(canvas.width / 2 + pan.x, canvas.height / 2 + pan.y);
-    ctx.scale(zoom, -zoom);
+    ctx.scale(dpr, dpr);
     
-    drawGrid(ctx, canvas.width, canvas.height);
-    drawBaselines(ctx);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    
+    ctx.save();
+    ctx.translate(rect.width / 2 + pan.x, rect.height / 2 + pan.y);
+    
+    const scale = zoom;
+    ctx.scale(scale, scale);
+    
+    drawGrid(ctx, rect.width, rect.height, scale);
+    drawBaselines(ctx, scale);
     
     if (glyph) {
-      drawGlyph(ctx, glyph);
+      drawGlyph(ctx, glyph, scale);
     }
     
     if (shapePreview && (selectedTool === "rectangle" || selectedTool === "ellipse")) {
-      drawShapePreview(ctx, shapePreview);
+      drawShapePreview(ctx, shapePreview, scale);
     }
+    
+    ctx.restore();
   }, [glyph, zoom, pan, selectedNodeIds, hoveredNodeId, selectedHandleId, shapePreview, selectedTool]);
   
   useEffect(() => {
@@ -94,16 +107,16 @@ export function GlyphCanvas({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [glyph, selectedNodeIds, onUndo, onRedo]);
   
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number, scale: number) => {
     ctx.save();
     ctx.strokeStyle = "hsl(var(--grid))";
-    ctx.lineWidth = 1 / zoom;
+    ctx.lineWidth = 1 / scale;
     
     const gridSpacing = GRID_SIZE;
-    const startX = -width / (2 * zoom) - pan.x / zoom;
-    const endX = width / (2 * zoom) - pan.x / zoom;
-    const startY = -height / (2 * zoom) + pan.y / zoom;
-    const endY = height / (2 * zoom) + pan.y / zoom;
+    const startX = (-width / 2 - pan.x) / scale;
+    const endX = (width / 2 - pan.x) / scale;
+    const startY = (-height / 2 - pan.y) / scale;
+    const endY = (height / 2 - pan.y) / scale;
     
     for (let x = Math.floor(startX / gridSpacing) * gridSpacing; x <= endX; x += gridSpacing) {
       ctx.beginPath();
@@ -114,18 +127,18 @@ export function GlyphCanvas({
     
     for (let y = Math.floor(startY / gridSpacing) * gridSpacing; y <= endY; y += gridSpacing) {
       ctx.beginPath();
-      ctx.moveTo(startX, y);
-      ctx.lineTo(endX, y);
+      ctx.moveTo(startX, -y);
+      ctx.lineTo(endX, -y);
       ctx.stroke();
     }
     
     ctx.restore();
   };
   
-  const drawBaselines = (ctx: CanvasRenderingContext2D) => {
+  const drawBaselines = (ctx: CanvasRenderingContext2D, scale: number) => {
     ctx.save();
     ctx.strokeStyle = "hsl(186 100% 50% / 0.3)";
-    ctx.lineWidth = 2 / zoom;
+    ctx.lineWidth = 2 / scale;
     
     ctx.beginPath();
     ctx.moveTo(-2000, 0);
@@ -133,25 +146,28 @@ export function GlyphCanvas({
     ctx.stroke();
     
     ctx.strokeStyle = "hsl(330 100% 50% / 0.3)";
-    ctx.setLineDash([10 / zoom, 10 / zoom]);
+    ctx.setLineDash([10 / scale, 10 / scale]);
     
     [700, 500, -200].forEach(y => {
       ctx.beginPath();
-      ctx.moveTo(-2000, y);
-      ctx.lineTo(2000, y);
+      ctx.moveTo(-2000, -y);
+      ctx.lineTo(2000, -y);
       ctx.stroke();
     });
     
     ctx.restore();
   };
   
-  const drawGlyph = (ctx: CanvasRenderingContext2D, glyph: Glyph) => {
+  const drawGlyph = (ctx: CanvasRenderingContext2D, glyph: Glyph, scale: number) => {
     ctx.save();
     
     glyph.paths.forEach(path => {
+      ctx.save();
+      ctx.scale(1, -1);
+      
       ctx.strokeStyle = "hsl(var(--foreground))";
       ctx.fillStyle = "hsl(var(--foreground) / 0.1)";
-      ctx.lineWidth = 3 / zoom;
+      ctx.lineWidth = 3 / scale;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       
@@ -161,34 +177,36 @@ export function GlyphCanvas({
       ctx.fill(path2d);
       ctx.stroke(path2d);
       
+      ctx.restore();
+      
       path.nodes.forEach(node => {
         if (node.handleIn) {
           ctx.strokeStyle = "hsl(var(--handle) / 0.5)";
-          ctx.lineWidth = 1 / zoom;
+          ctx.lineWidth = 1 / scale;
           ctx.beginPath();
-          ctx.moveTo(node.x, node.y);
-          ctx.lineTo(node.handleIn.x, node.handleIn.y);
+          ctx.moveTo(node.x, -node.y);
+          ctx.lineTo(node.handleIn.x, -node.handleIn.y);
           ctx.stroke();
           
           const isSelectedHandle = selectedHandleId === `${node.id}-in`;
           ctx.fillStyle = isSelectedHandle ? "hsl(var(--accent))" : "hsl(var(--handle))";
           ctx.beginPath();
-          ctx.arc(node.handleIn.x, node.handleIn.y, HANDLE_RADIUS / zoom, 0, Math.PI * 2);
+          ctx.arc(node.handleIn.x, -node.handleIn.y, HANDLE_RADIUS / scale, 0, Math.PI * 2);
           ctx.fill();
         }
         
         if (node.handleOut) {
           ctx.strokeStyle = "hsl(var(--handle) / 0.5)";
-          ctx.lineWidth = 1 / zoom;
+          ctx.lineWidth = 1 / scale;
           ctx.beginPath();
-          ctx.moveTo(node.x, node.y);
-          ctx.lineTo(node.handleOut.x, node.handleOut.y);
+          ctx.moveTo(node.x, -node.y);
+          ctx.lineTo(node.handleOut.x, -node.handleOut.y);
           ctx.stroke();
           
           const isSelectedHandle = selectedHandleId === `${node.id}-out`;
           ctx.fillStyle = isSelectedHandle ? "hsl(var(--accent))" : "hsl(var(--handle))";
           ctx.beginPath();
-          ctx.arc(node.handleOut.x, node.handleOut.y, HANDLE_RADIUS / zoom, 0, Math.PI * 2);
+          ctx.arc(node.handleOut.x, -node.handleOut.y, HANDLE_RADIUS / scale, 0, Math.PI * 2);
           ctx.fill();
         }
         
@@ -197,18 +215,18 @@ export function GlyphCanvas({
         
         if (isHovered || isSelected) {
           ctx.strokeStyle = "hsl(var(--accent) / 0.3)";
-          ctx.lineWidth = 8 / zoom;
+          ctx.lineWidth = 8 / scale;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, (NODE_RADIUS + 4) / zoom, 0, Math.PI * 2);
+          ctx.arc(node.x, -node.y, (NODE_RADIUS + 4) / scale, 0, Math.PI * 2);
           ctx.stroke();
         }
         
         ctx.fillStyle = isSelected ? "hsl(var(--node-selected))" : "hsl(var(--node))";
         ctx.strokeStyle = "hsl(var(--background))";
-        ctx.lineWidth = 2 / zoom;
+        ctx.lineWidth = 2 / scale;
         
         ctx.beginPath();
-        ctx.arc(node.x, node.y, NODE_RADIUS / zoom, 0, Math.PI * 2);
+        ctx.arc(node.x, -node.y, NODE_RADIUS / scale, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
@@ -217,12 +235,13 @@ export function GlyphCanvas({
     ctx.restore();
   };
   
-  const drawShapePreview = (ctx: CanvasRenderingContext2D, preview: { start: Point; end: Point }) => {
+  const drawShapePreview = (ctx: CanvasRenderingContext2D, preview: { start: Point; end: Point }, scale: number) => {
     ctx.save();
+    ctx.scale(1, -1);
     ctx.strokeStyle = "hsl(var(--accent) / 0.6)";
     ctx.fillStyle = "hsl(var(--accent) / 0.1)";
-    ctx.lineWidth = 2 / zoom;
-    ctx.setLineDash([10 / zoom, 10 / zoom]);
+    ctx.lineWidth = 2 / scale;
+    ctx.setLineDash([10 / scale, 10 / scale]);
     
     const x = Math.min(preview.start.x, preview.end.x);
     const y = Math.min(preview.start.y, preview.end.y);
@@ -230,8 +249,8 @@ export function GlyphCanvas({
     const height = Math.abs(preview.end.y - preview.start.y);
     
     if (selectedTool === "rectangle") {
-      ctx.strokeRect(x, y, width, height);
-      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, -y - height, width, height);
+      ctx.fillRect(x, -y - height, width, height);
     } else if (selectedTool === "ellipse") {
       const cx = x + width / 2;
       const cy = y + height / 2;
@@ -239,7 +258,7 @@ export function GlyphCanvas({
       const ry = height / 2;
       
       ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx, -cy, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
@@ -255,8 +274,8 @@ export function GlyphCanvas({
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     
-    const worldX = (x - canvas.width / 2 - pan.x) / zoom;
-    const worldY = -(y - canvas.height / 2 - pan.y) / zoom;
+    const worldX = (x - rect.width / 2 - pan.x) / zoom;
+    const worldY = (rect.height / 2 + pan.y - y) / zoom;
     
     return { x: worldX, y: worldY };
   };
@@ -318,6 +337,60 @@ export function GlyphCanvas({
     const newZoom = Math.max(0.1, Math.min(10, zoom * zoomFactor));
     
     onZoomChange(newZoom);
+  };
+  
+  const handleTouchStart = (e: TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 2) {
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+      setTouchStart({
+        x: (touch1.clientX + touch2.clientX) / 2,
+        y: (touch1.clientY + touch2.clientY) / 2,
+        dist,
+      });
+    } else if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      handleMouseDown({
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        button: 0,
+        shiftKey: false,
+        preventDefault: () => {},
+      } as MouseEvent<HTMLCanvasElement>);
+    }
+  };
+  
+  const handleTouchMove = (e: TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    
+    if (e.touches.length === 2 && touchStart) {
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+      
+      const zoomFactor = dist / touchStart.dist;
+      const newZoom = Math.max(0.1, Math.min(10, zoom * zoomFactor));
+      onZoomChange(newZoom);
+      
+      setTouchStart({
+        x: (touch1.clientX + touch2.clientX) / 2,
+        y: (touch1.clientY + touch2.clientY) / 2,
+        dist,
+      });
+    } else if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      handleMouseMove({
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        button: 0,
+      } as MouseEvent<HTMLCanvasElement>);
+    }
+  };
+  
+  const handleTouchEnd = () => {
+    setTouchStart(null);
+    handleMouseUp();
   };
   
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -555,7 +628,7 @@ export function GlyphCanvas({
   };
   
   return (
-    <div ref={containerRef} className="flex-1 relative canvas-grid">
+    <div ref={containerRef} className="flex-1 relative canvas-grid touch-none">
       <canvas
         ref={canvasRef}
         onWheel={handleWheel}
@@ -563,37 +636,40 @@ export function GlyphCanvas({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        className="absolute inset-0 cursor-crosshair"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="absolute inset-0 cursor-crosshair touch-none"
       />
       
-      <div className="absolute bottom-4 right-4 glass-panel px-3 py-2 rounded-lg text-sm space-y-1">
+      <div className="absolute bottom-4 right-4 glass-panel px-3 py-2 rounded-lg text-sm space-y-1 pointer-events-none">
         <div>Zoom: {Math.round(zoom * 100)}%</div>
         {selectedNodeIds.size > 0 && (
-          <div className="text-accent">Selected: {selectedNodeIds.size} node{selectedNodeIds.size !== 1 ? "s" : ""}</div>
+          <div className="text-accent">Selected: {selectedNodeIds.size}</div>
         )}
       </div>
       
       {selectedTool === "select" && (
-        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
-          Click: select • Shift+Click: multi-select • Drag: move • Delete: remove • Cmd/Ctrl+A: select all
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground hidden md:block pointer-events-none">
+          Click: select • Shift: multi-select • Drag: move
         </div>
       )}
       
       {selectedTool === "pen" && (
-        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
-          Click to add points • Click near first point to close path
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground hidden md:block pointer-events-none">
+          Click to add points • Click first point to close
         </div>
       )}
       
       {(selectedTool === "rectangle" || selectedTool === "ellipse") && (
-        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground hidden md:block pointer-events-none">
           Drag to create {selectedTool}
         </div>
       )}
       
       {selectedTool === "hand" && (
-        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
-          Drag to pan canvas • Scroll to zoom
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground hidden md:block pointer-events-none">
+          Drag to pan • Scroll/pinch to zoom
         </div>
       )}
     </div>
