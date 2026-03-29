@@ -53,6 +53,8 @@ export interface Font {
 
 export type Tool = "select" | "pen" | "rectangle" | "ellipse" | "hand";
 
+export type ViewMode = "canvas" | "grid" | "kerning" | "preview";
+
 export interface EditorState {
   selectedGlyph: Glyph | null;
   selectedTool: Tool;

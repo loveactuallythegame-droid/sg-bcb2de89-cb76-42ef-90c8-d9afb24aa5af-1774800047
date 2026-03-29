@@ -7,13 +7,16 @@ import { ExportModal } from "@/components/ExportModal";
 import { ImportModal } from "@/components/ImportModal";
 import { SettingsModal } from "@/components/SettingsModal";
 import { KerningEditor } from "@/components/KerningEditor";
+import { PreviewPanel } from "@/components/PreviewPanel";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
-import { Font, Glyph, Tool } from "@/types/font";
+import { Font, Glyph, Tool, ViewMode } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
+import { PathOperations } from "@/lib/pathOperations";
 import { 
   MousePointer2, Pen, Square, Circle, Hand, Grid3x3, 
   Eye, Undo2, Redo2, Download, Upload, Settings, 
-  Heart, ArrowLeftRight, Menu, X
+  Heart, ArrowLeftRight, Menu, X, Type, FlipHorizontal,
+  FlipVertical, RotateCw, Maximize2, Minimize2
 } from "lucide-react";
 
 const INITIAL_FONT: Font = {
@@ -35,7 +38,7 @@ const INITIAL_FONT: Font = {
 };
 
 export default function Home() {
-  const [viewMode, setViewMode] = useState<"canvas" | "grid" | "kerning">("canvas");
+  const [viewMode, setViewMode] = useState<ViewMode>("canvas");
   const [font, setFont] = useState<Font>(INITIAL_FONT);
   const [selectedGlyph, setSelectedGlyph] = useState<Glyph | null>(null);
   const { state: glyph, setState: setGlyph, undo, redo, canUndo, canRedo } = useUndoRedo<Glyph | null>(null);
@@ -134,6 +137,60 @@ export default function Home() {
     }));
   };
   
+  const handleFlipHorizontal = () => {
+    if (!glyph) return;
+    const bbox = FontEngine.calculateBoundingBox(glyph);
+    if (!bbox) return;
+    
+    const centerX = (bbox.xMin + bbox.xMax) / 2;
+    const flippedGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.flipHorizontal(path, centerX)),
+    };
+    setGlyph(flippedGlyph);
+  };
+  
+  const handleFlipVertical = () => {
+    if (!glyph) return;
+    const bbox = FontEngine.calculateBoundingBox(glyph);
+    if (!bbox) return;
+    
+    const centerY = (bbox.yMin + bbox.yMax) / 2;
+    const flippedGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.flipVertical(path, centerY)),
+    };
+    setGlyph(flippedGlyph);
+  };
+  
+  const handleRotate = (degrees: number) => {
+    if (!glyph) return;
+    const bbox = FontEngine.calculateBoundingBox(glyph);
+    if (!bbox) return;
+    
+    const centerX = (bbox.xMin + bbox.xMax) / 2;
+    const centerY = (bbox.yMin + bbox.yMax) / 2;
+    const rotatedGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.rotate(path, degrees, centerX, centerY)),
+    };
+    setGlyph(rotatedGlyph);
+  };
+  
+  const handleScale = (scaleX: number, scaleY: number) => {
+    if (!glyph) return;
+    const bbox = FontEngine.calculateBoundingBox(glyph);
+    if (!bbox) return;
+    
+    const centerX = (bbox.xMin + bbox.xMax) / 2;
+    const centerY = (bbox.yMin + bbox.yMax) / 2;
+    const scaledGlyph = {
+      ...glyph,
+      paths: glyph.paths.map(path => PathOperations.scale(path, scaleX, scaleY, centerX, centerY)),
+    };
+    setGlyph(scaledGlyph);
+  };
+  
   const tools: Array<{ tool: Tool; icon: typeof MousePointer2; label: string; shortcut?: string }> = [
     { tool: "select", icon: MousePointer2, label: "Select", shortcut: "V" },
     { tool: "pen", icon: Pen, label: "Pen", shortcut: "P" },
@@ -163,6 +220,7 @@ export default function Home() {
       case "canvas": return "Draw";
       case "grid": return "Grid";
       case "kerning": return "Kern";
+      case "preview": return "Preview";
       default: return "Editor";
     }
   };
@@ -211,6 +269,14 @@ export default function Home() {
                 title="Spacing & Kerning Tester"
               >
                 <ArrowLeftRight className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={() => setViewMode("preview")}
+                className={`tool-btn ${viewMode === "preview" ? "active" : ""}`}
+                title="Type Preview Mode"
+              >
+                <Type className="w-5 h-5" />
               </button>
             </div>
           </aside>
@@ -296,24 +362,33 @@ export default function Home() {
                   ))}
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => {
                       setViewMode(viewMode === "canvas" ? "grid" : "canvas");
                       setIsMobileMenuOpen(false);
                     }}
-                    className="tool-btn flex-1 h-12"
+                    className="tool-btn h-12"
                   >
-                    {viewMode === "canvas" ? "Grid View" : "Canvas View"}
+                    {viewMode === "canvas" ? "Grid" : "Canvas"}
                   </button>
                   <button
                     onClick={() => {
                       setViewMode("kerning");
                       setIsMobileMenuOpen(false);
                     }}
-                    className="tool-btn flex-1 h-12"
+                    className="tool-btn h-12"
                   >
                     Kerning
+                  </button>
+                  <button
+                    onClick={() => {
+                      setViewMode("preview");
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="tool-btn h-12 col-span-2"
+                  >
+                    Preview Text
                   </button>
                 </div>
               </div>
@@ -353,6 +428,22 @@ export default function Home() {
                         </div>
                         
                         <div>
+                          <label className="text-sm text-muted-foreground">Unicode</label>
+                          <input
+                            type="text"
+                            value={glyph.unicode ? String.fromCharCode(glyph.unicode) : ""}
+                            onChange={(e) => {
+                              const char = e.target.value[0];
+                              const updated = { ...glyph, unicode: char ? char.charCodeAt(0) : undefined };
+                              setGlyph(updated);
+                            }}
+                            placeholder="Type character"
+                            maxLength={1}
+                            className="w-full px-3 py-2 mt-1 glass-panel rounded-lg text-sm"
+                          />
+                        </div>
+                        
+                        <div>
                           <label className="text-sm text-muted-foreground">Advance Width</label>
                           <input
                             type="number"
@@ -376,6 +467,54 @@ export default function Home() {
                             }}
                             className="w-full px-3 py-2 mt-1 glass-panel rounded-lg text-sm"
                           />
+                        </div>
+                        
+                        <div className="pt-4 border-t border-border">
+                          <div className="text-sm font-semibold mb-3">Transform</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={handleFlipHorizontal}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <FlipHorizontal className="w-4 h-4" />
+                              Flip H
+                            </button>
+                            <button
+                              onClick={handleFlipVertical}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <FlipVertical className="w-4 h-4" />
+                              Flip V
+                            </button>
+                            <button
+                              onClick={() => handleRotate(90)}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <RotateCw className="w-4 h-4" />
+                              90°
+                            </button>
+                            <button
+                              onClick={() => handleRotate(-90)}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <RotateCw className="w-4 h-4 scale-x-[-1]" />
+                              -90°
+                            </button>
+                            <button
+                              onClick={() => handleScale(1.5, 1.5)}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <Maximize2 className="w-4 h-4" />
+                              150%
+                            </button>
+                            <button
+                              onClick={() => handleScale(0.75, 0.75)}
+                              className="btn-secondary text-sm py-2 flex items-center justify-center gap-2"
+                            >
+                              <Minimize2 className="w-4 h-4" />
+                              75%
+                            </button>
+                          </div>
                         </div>
                         
                         <div className="pt-4 border-t border-border">
@@ -476,6 +615,22 @@ export default function Home() {
                               />
                             </div>
                             
+                            <div>
+                              <label className="text-sm text-muted-foreground">Character</label>
+                              <input
+                                type="text"
+                                value={glyph.unicode ? String.fromCharCode(glyph.unicode) : ""}
+                                onChange={(e) => {
+                                  const char = e.target.value[0];
+                                  const updated = { ...glyph, unicode: char ? char.charCodeAt(0) : undefined };
+                                  setGlyph(updated);
+                                }}
+                                placeholder="Type letter"
+                                maxLength={1}
+                                className="w-full px-3 py-3 mt-1 glass-panel rounded-lg text-base"
+                              />
+                            </div>
+                            
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <label className="text-sm text-muted-foreground">Width</label>
@@ -501,6 +656,52 @@ export default function Home() {
                                   }}
                                   className="w-full px-3 py-3 mt-1 glass-panel rounded-lg text-base"
                                 />
+                              </div>
+                            </div>
+                            
+                            <div className="pt-4 border-t border-border">
+                              <div className="text-sm font-semibold mb-3">Transform</div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  onClick={() => {
+                                    handleFlipHorizontal();
+                                    setShowPropertiesPanel(false);
+                                  }}
+                                  className="btn-secondary py-3 flex items-center justify-center gap-2"
+                                >
+                                  <FlipHorizontal className="w-4 h-4" />
+                                  Flip H
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleFlipVertical();
+                                    setShowPropertiesPanel(false);
+                                  }}
+                                  className="btn-secondary py-3 flex items-center justify-center gap-2"
+                                >
+                                  <FlipVertical className="w-4 h-4" />
+                                  Flip V
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleRotate(90);
+                                    setShowPropertiesPanel(false);
+                                  }}
+                                  className="btn-secondary py-3 flex items-center justify-center gap-2"
+                                >
+                                  <RotateCw className="w-4 h-4" />
+                                  90°
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleRotate(-90);
+                                    setShowPropertiesPanel(false);
+                                  }}
+                                  className="btn-secondary py-3 flex items-center justify-center gap-2"
+                                >
+                                  <RotateCw className="w-4 h-4 scale-x-[-1]" />
+                                  -90°
+                                </button>
                               </div>
                             </div>
                             
@@ -549,6 +750,8 @@ export default function Home() {
                 onGlyphSelect={handleGlyphSelect}
                 onGlyphCreate={handleGlyphCreate}
               />
+            ) : viewMode === "preview" ? (
+              <PreviewPanel font={font} />
             ) : (
               <div className="flex-1 overflow-auto p-4 md:p-6">
                 <div className="max-w-5xl mx-auto">
