@@ -30,6 +30,7 @@ export function GlyphCanvas({
   const [selectedHandleId, setSelectedHandleId] = useState<string | null>(null);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [shapePreview, setShapePreview] = useState<{ start: Point; end: Point } | null>(null);
   
   const GRID_SIZE = 50;
   const NODE_RADIUS = 6;
@@ -61,7 +62,11 @@ export function GlyphCanvas({
     if (glyph) {
       drawGlyph(ctx, glyph);
     }
-  }, [glyph, zoom, pan, selectedNodeIds, hoveredNodeId, selectedHandleId]);
+    
+    if (shapePreview && (selectedTool === "rectangle" || selectedTool === "ellipse")) {
+      drawShapePreview(ctx, shapePreview);
+    }
+  }, [glyph, zoom, pan, selectedNodeIds, hoveredNodeId, selectedHandleId, shapePreview, selectedTool]);
   
   useEffect(() => {
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -208,6 +213,36 @@ export function GlyphCanvas({
         ctx.stroke();
       });
     });
+    
+    ctx.restore();
+  };
+  
+  const drawShapePreview = (ctx: CanvasRenderingContext2D, preview: { start: Point; end: Point }) => {
+    ctx.save();
+    ctx.strokeStyle = "hsl(var(--accent) / 0.6)";
+    ctx.fillStyle = "hsl(var(--accent) / 0.1)";
+    ctx.lineWidth = 2 / zoom;
+    ctx.setLineDash([10 / zoom, 10 / zoom]);
+    
+    const x = Math.min(preview.start.x, preview.end.x);
+    const y = Math.min(preview.start.y, preview.end.y);
+    const width = Math.abs(preview.end.x - preview.start.x);
+    const height = Math.abs(preview.end.y - preview.start.y);
+    
+    if (selectedTool === "rectangle") {
+      ctx.strokeRect(x, y, width, height);
+      ctx.fillRect(x, y, width, height);
+    } else if (selectedTool === "ellipse") {
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      const rx = width / 2;
+      const ry = height / 2;
+      
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     
     ctx.restore();
   };
@@ -366,8 +401,9 @@ export function GlyphCanvas({
       onGlyphChange(updatedGlyph);
     }
     
-    if (selectedTool === "rectangle" && glyph) {
+    if ((selectedTool === "rectangle" || selectedTool === "ellipse") && glyph) {
       setDragStart(worldPos);
+      setShapePreview({ start: worldPos, end: worldPos });
       setIsDragging(true);
     }
   };
@@ -385,6 +421,11 @@ export function GlyphCanvas({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y,
       });
+      return;
+    }
+    
+    if (isDragging && (selectedTool === "rectangle" || selectedTool === "ellipse")) {
+      setShapePreview({ start: dragStart, end: worldPos });
       return;
     }
     
@@ -443,6 +484,43 @@ export function GlyphCanvas({
   };
   
   const handleMouseUp = () => {
+    if (isDragging && shapePreview && (selectedTool === "rectangle" || selectedTool === "ellipse") && glyph) {
+      const x = Math.min(shapePreview.start.x, shapePreview.end.x);
+      const y = Math.min(shapePreview.start.y, shapePreview.end.y);
+      const width = Math.abs(shapePreview.end.x - shapePreview.start.x);
+      const height = Math.abs(shapePreview.end.y - shapePreview.start.y);
+      
+      if (width > 10 && height > 10) {
+        const updatedGlyph = { ...glyph };
+        let newPath: Path;
+        
+        if (selectedTool === "rectangle") {
+          newPath = FontEngine.createRectangle(
+            Math.round(x / 10) * 10,
+            Math.round(y / 10) * 10,
+            Math.round(width / 10) * 10,
+            Math.round(height / 10) * 10
+          );
+        } else {
+          const cx = x + width / 2;
+          const cy = y + height / 2;
+          const rx = width / 2;
+          const ry = height / 2;
+          newPath = FontEngine.createEllipse(
+            Math.round(cx / 10) * 10,
+            Math.round(cy / 10) * 10,
+            Math.round(rx / 10) * 10,
+            Math.round(ry / 10) * 10
+          );
+        }
+        
+        updatedGlyph.paths.push(newPath);
+        onGlyphChange(updatedGlyph);
+      }
+      
+      setShapePreview(null);
+    }
+    
     setIsDragging(false);
     setDraggedNodeId(null);
     setSelectedHandleId(null);
@@ -498,6 +576,12 @@ export function GlyphCanvas({
       {selectedTool === "select" && (
         <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
           Click: select • Shift+Click: multi-select • Drag: move • Delete: remove • Cmd/Ctrl+A: select all
+        </div>
+      )}
+      
+      {(selectedTool === "rectangle" || selectedTool === "ellipse") && (
+        <div className="absolute top-4 left-4 glass-panel px-3 py-2 rounded-lg text-xs text-muted-foreground">
+          Drag to create {selectedTool} • Shift: constrain proportions
         </div>
       )}
     </div>
