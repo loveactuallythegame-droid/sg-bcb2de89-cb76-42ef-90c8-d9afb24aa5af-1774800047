@@ -100,6 +100,7 @@ export function GlyphCanvas({
       } else if (e.key === "Escape") {
         e.preventDefault();
         setSelectedNodeIds(new Set());
+        setSelectedHandleId(null);
       }
     };
     
