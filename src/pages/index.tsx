@@ -5,13 +5,15 @@ import { GlyphCanvas } from "@/components/GlyphCanvas";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { ExportModal } from "@/components/ExportModal";
 import { ImportModal } from "@/components/ImportModal";
+import { SettingsModal } from "@/components/SettingsModal";
+import { KerningEditor } from "@/components/KerningEditor";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { Font, Glyph, Tool } from "@/types/font";
 import { FontEngine } from "@/lib/fontEngine";
 import { 
   MousePointer2, Pen, Scissors, Ruler, Square, 
   Circle, Hand, Grid3x3, Eye, Undo2, Redo2,
-  Download, Upload, Settings, Save, Heart
+  Download, Upload, Settings, Save, Heart, ArrowLeftRight
 } from "lucide-react";
 
 const INITIAL_FONT: Font = {
@@ -33,7 +35,7 @@ const INITIAL_FONT: Font = {
 };
 
 export default function Home() {
-  const [viewMode, setViewMode] = useState<"canvas" | "grid">("canvas");
+  const [viewMode, setViewMode] = useState<"canvas" | "grid" | "kerning">("canvas");
   const [font, setFont] = useState<Font>(INITIAL_FONT);
   const [selectedGlyph, setSelectedGlyph] = useState<Glyph | null>(null);
   const { state: glyph, setState: setGlyph, undo, redo, canUndo, canRedo } = useUndoRedo<Glyph | null>(null);
@@ -41,6 +43,7 @@ export default function Home() {
   const [zoom, setZoom] = useState(1);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   
   useEffect(() => {
     if (glyph && selectedGlyph && glyph.id === selectedGlyph.id) {
@@ -54,6 +57,43 @@ export default function Home() {
       }));
     }
   }, [glyph, selectedGlyph]);
+  
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      const key = e.key.toLowerCase();
+      
+      if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        switch (key) {
+          case "v":
+            setSelectedTool("select");
+            break;
+          case "p":
+            setSelectedTool("pen");
+            break;
+          case "k":
+            setSelectedTool("knife");
+            break;
+          case "r":
+            setSelectedTool("ruler");
+            break;
+          case "m":
+            setSelectedTool("rectangle");
+            break;
+          case "o":
+            setSelectedTool("ellipse");
+            break;
+          case "h":
+            setSelectedTool("hand");
+            break;
+        }
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
   
   const handleGlyphChange = (updatedGlyph: Glyph) => {
     setGlyph(updatedGlyph);
@@ -85,6 +125,18 @@ export default function Home() {
     handleGlyphSelect(newGlyph);
   };
   
+  const handleKerningChange = (leftGlyph: string, rightGlyph: string, value: number) => {
+    const key = `${leftGlyph}_${rightGlyph}`;
+    setFont(prev => ({
+      ...prev,
+      kerningPairs: {
+        ...prev.kerningPairs,
+        [key]: value,
+      },
+      modified: new Date(),
+    }));
+  };
+  
   const tools: Array<{ tool: Tool; icon: typeof MousePointer2; label: string; shortcut?: string }> = [
     { tool: "select", icon: MousePointer2, label: "Select Tool", shortcut: "V" },
     { tool: "pen", icon: Pen, label: "Pen Tool", shortcut: "P" },
@@ -109,6 +161,15 @@ export default function Home() {
     setGlyph(null);
   };
   
+  const getViewModeTitle = () => {
+    switch (viewMode) {
+      case "canvas": return "Glyph Drawing Canvas";
+      case "grid": return "All Glyphs Grid";
+      case "kerning": return "Spacing & Kerning Tester";
+      default: return "Editor";
+    }
+  };
+  
   return (
     <>
       <SEO 
@@ -124,12 +185,12 @@ export default function Home() {
             </div>
             
             <div className="flex-1 flex flex-col gap-2">
-              {tools.map(({ tool, icon: Icon, label }) => (
+              {tools.map(({ tool, icon: Icon, label, shortcut }) => (
                 <button
                   key={tool}
                   onClick={() => setSelectedTool(tool)}
                   className={`tool-btn ${selectedTool === tool ? "active" : ""}`}
-                  title={label}
+                  title={`${label}${shortcut ? ` (${shortcut})` : ""}`}
                   aria-label={label}
                 >
                   <Icon className="w-5 h-5" />
@@ -145,6 +206,14 @@ export default function Home() {
               >
                 {viewMode === "canvas" ? <Grid3x3 className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
+              
+              <button
+                onClick={() => setViewMode("kerning")}
+                className={`tool-btn ${viewMode === "kerning" ? "active" : ""}`}
+                title="Spacing & Kerning Tester"
+              >
+                <ArrowLeftRight className="w-5 h-5" />
+              </button>
             </div>
           </aside>
           
@@ -152,7 +221,7 @@ export default function Home() {
             <header className="glass-panel border-b border-border px-6 py-3 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <h1 className="text-lg font-semibold gradient-text">
-                  {viewMode === "canvas" ? "Glyph Drawing Canvas" : "All Glyphs Grid"}
+                  {getViewModeTitle()}
                 </h1>
                 {selectedGlyph && viewMode === "canvas" && (
                   <span className="text-sm text-muted-foreground">
@@ -190,7 +259,7 @@ export default function Home() {
                 <button onClick={handleExport} className="tool-btn" title="Export Final Font File">
                   <Download className="w-4 h-4" />
                 </button>
-                <button className="tool-btn" title="Font Settings">
+                <button onClick={() => setIsSettingsModalOpen(true)} className="tool-btn" title="Font Settings">
                   <Settings className="w-4 h-4" />
                 </button>
               </div>
@@ -327,13 +396,22 @@ export default function Home() {
                   </aside>
                 )}
               </div>
-            ) : (
+            ) : viewMode === "grid" ? (
               <GlyphGrid
                 font={font}
                 selectedGlyph={selectedGlyph}
                 onGlyphSelect={handleGlyphSelect}
                 onGlyphCreate={handleGlyphCreate}
               />
+            ) : (
+              <div className="flex-1 overflow-auto p-6">
+                <div className="max-w-5xl mx-auto">
+                  <KerningEditor
+                    font={font}
+                    onKerningChange={handleKerningChange}
+                  />
+                </div>
+              </div>
             )}
           </main>
         </div>
@@ -349,6 +427,13 @@ export default function Home() {
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImport={handleFontImport}
+      />
+      
+      <SettingsModal
+        font={font}
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onFontUpdate={setFont}
       />
     </>
   );
